@@ -18,6 +18,26 @@ use crate::{
     types::{DeviceInput, ImageFormat},
 };
 
+/// Device query for filtering HID devices by USB identifiers
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeviceQuery {
+    pub usage_page: u16,
+    pub usage_id: u16,
+    pub vendor_id: u16,
+    pub product_id: u16,
+}
+
+impl DeviceQuery {
+    pub const fn new(usage_page: u16, usage_id: u16, vendor_id: u16, product_id: u16) -> Self {
+        Self {
+            usage_page,
+            usage_id,
+            vendor_id,
+            product_id,
+        }
+    }
+}
+
 /// Creates an instance of the HidApi
 ///
 /// Can be used if you don't want to link hidapi crate into your project
