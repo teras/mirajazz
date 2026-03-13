@@ -65,6 +65,11 @@ pub struct DeviceInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtocolConfig {
     pub protocol_version: usize,    // 0, 1, 2, or 3
+
+    /// Device mode to set on initialization (for multimodal devices).
+    /// Sends MOD command with this value before other commands.
+    #[serde(default)]
+    pub device_mode: Option<u8>,
 }
 
 /// Physical device layout
@@ -176,6 +181,18 @@ pub struct Quirks {
     /// Example: "355499441494-03001010"
     #[serde(default)]
     pub force_serial: bool,
+
+    /// Device image slots and button press keys use different physical orderings.
+    /// When true, button_remap is applied only to images (not to input events),
+    /// because the device already reports button presses in opendeck order.
+    #[serde(default)]
+    pub image_remap_only: bool,
+
+    /// Override encoder state detection.
+    /// When true, forces encoder toggle mode (synthesize press+release)
+    /// even if protocol_version > 2 would normally enable dual states.
+    #[serde(default)]
+    pub force_encoder_toggle: bool,
 }
 
 impl DeviceDefinition {
@@ -216,7 +233,11 @@ impl DeviceDefinition {
     }
 
     /// Map device button index back to OpenDeck index (reverse mapping)
+    /// Skipped when `image_remap_only` quirk is set (device input already uses opendeck order)
     pub fn device_to_opendeck_button(&self, device_index: u8) -> u8 {
+        if self.quirks.image_remap_only {
+            return device_index;
+        }
         if let Some(remap) = &self.input_mapping.button_remap {
             remap.iter()
                 .position(|&idx| idx == device_index)

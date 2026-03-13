@@ -151,6 +151,16 @@ The Mirabox/Ajazz protocol generation determines packet sizes, features, and ini
 
 ---
 
+#### `device_mode` (integer, optional)
+
+Device mode to set on initialization for multimodal devices. Sends a MOD command with this value before any other commands.
+
+- **Values:** `0`-`255` (device-specific meaning)
+- **When to use:** Some devices support multiple operational modes (e.g., macropad vs mixer). The mode must be set before the device will accept other commands.
+- **Default:** Not set (no MOD command sent)
+
+---
+
 ### `layout` (required)
 
 Physical button and encoder layout configuration.
@@ -381,6 +391,29 @@ Whether device has buttons without displays.
 **Common values:**
 - `false` - AKP153 family
 - `true` - AKP03 family (encoder buttons)
+
+#### `image_remap_only` (boolean, optional, default: false)
+When `true`, `button_remap` is applied only to image slot addressing, not to input events.
+
+Some devices number image slots and button presses in different physical orders
+(e.g. image slots bottom-to-top but presses top-to-bottom). For these devices,
+the remap fixes image positioning while input already reports correct indices.
+
+**Values:**
+- `true` - Remap images only (e.g. MagTran M3)
+- `false` (default) - Remap both images and input (e.g. AKP153 family)
+
+#### `force_encoder_toggle` (boolean, optional, default: false)
+Forces encoder press events to toggle mode (synthesize press+release) even when the
+protocol version (>2) would normally enable separate press/release state tracking.
+
+Some devices report encoder press events unreliably in dual-state mode despite
+supporting it for regular buttons. This quirk forces the encoder handling to
+emit paired Down+Up events for every press, like protocol v1/v2 devices.
+
+**Values:**
+- `true` - Force toggle mode for encoders
+- `false` (default) - Use protocol version to determine encoder state handling
 
 ---
 

@@ -77,7 +77,7 @@ impl DeviceStateReader {
                 for (index, (their, mine)) in
                     zip(encoders.iter(), my_states.encoders.iter()).enumerate()
                 {
-                    if !self.device.supports_both_states() {
+                    if !self.device.supports_both_encoder_states() {
                         if *their {
                             updates.push(DeviceStateUpdate::EncoderDown(index as u8));
                             updates.push(DeviceStateUpdate::EncoderUp(index as u8));

@@ -88,10 +88,12 @@ pub struct Device {
     pub vid: u16,
     /// Product ID of the device
     pub pid: u16,
-    /// Use v2 hacks
-    is_v2: bool,
-    /// Emits two events for buttons or not
+    /// Protocol version: 0 (legacy), 1 (old), 2 (v2), 3 (encoder states)
+    protocol_version: usize,
+    /// Emits separate press/release events for buttons
     supports_both_states: bool,
+    /// Emits separate press/release events for encoders (can differ from buttons)
+    supports_both_encoder_states: bool,
     /// Number of keys
     key_count: usize,
     /// Number of encoders
@@ -114,7 +116,7 @@ impl Device {
         vid: u16,
         pid: u16,
         serial: &str,
-        is_v2: bool,
+        protocol_version: usize,
         supports_both_states: bool,
         key_count: usize,
         encoder_count: usize,
@@ -124,11 +126,12 @@ impl Device {
         Ok(Device {
             vid,
             pid,
-            is_v2,
+            protocol_version,
             supports_both_states,
+            supports_both_encoder_states: supports_both_states,
             key_count,
             encoder_count,
-            packet_size: if is_v2 { 1024 } else { 512 },
+            packet_size: if protocol_version >= 2 { 1024 } else { 512 },
             hid_device,
             image_cache: RwLock::new(vec![]),
             initialized: false.into(),
@@ -206,9 +209,29 @@ impl Device {
         Ok(())
     }
 
-    /// Returns value of `supports_both_states`
+    /// Returns value of `supports_both_states` (for buttons)
     pub fn supports_both_states(&self) -> bool {
         self.supports_both_states
+    }
+
+    /// Returns value of `supports_both_encoder_states`
+    pub fn supports_both_encoder_states(&self) -> bool {
+        self.supports_both_encoder_states
+    }
+
+    /// Override the auto-detected encoder state capability
+    pub fn with_supports_both_encoder_states(mut self, supports: bool) -> Self {
+        self.supports_both_encoder_states = supports;
+        self
+    }
+
+    /// Sends MOD command to switch device mode (for multimodal devices)
+    pub fn set_mode(&self, mode: u8) -> Result<(), MirajazzError> {
+        let mut buf = vec![
+            0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x4D, 0x4F, 0x44, 0x30 + mode,
+        ];
+        self.write_extended_data(&mut buf)?;
+        Ok(())
     }
 
     /// Reads current input state from the device and calls provided function for processing
@@ -222,6 +245,11 @@ impl Device {
         let data = self.read_data(512, timeout)?;
 
         if data[0] == 0 {
+            return Ok(DeviceInput::NoData);
+        }
+
+        // Validate ACK prefix [65, 67, 75] = "ACK" (skip for protocol_version 0)
+        if self.protocol_version > 0 && !data.starts_with(&[65, 67, 75]) {
             return Ok(DeviceInput::NoData);
         }
 
@@ -330,8 +358,8 @@ impl Device {
 
         self.clear_button_image(0xFF)?;
 
-        if self.is_v2 {
-            // Mirabox "v2" requires STP to commit clearing the screen
+        if self.protocol_version >= 2 {
+            // Mirabox v2+ requires STP to commit clearing the screen
             let mut buf = vec![0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x53, 0x54, 0x50];
 
             self.write_extended_data(&mut buf)?;
@@ -429,8 +457,10 @@ impl Device {
 
     fn write_image_data_reports(&self, image_data: &[u8]) -> Result<(), MirajazzError> {
         let image_report_length = self.packet_size + 1;
-        let image_report_header_length = 1;
-        let image_report_payload_length = image_report_length - image_report_header_length;
+        let image_report_payload_length = self.packet_size; // image_report_length - 1 (header byte)
+
+        let mut buf = vec![0u8; image_report_length];
+        buf[0] = 0x00; // Header byte
 
         let mut page_number = 0;
         let mut bytes_remaining = image_data.len();
@@ -439,12 +469,9 @@ impl Device {
             let this_length = bytes_remaining.min(image_report_payload_length);
             let bytes_sent = page_number * image_report_payload_length;
 
-            // Header
-            let mut buf: Vec<u8> = [0x00].to_vec();
-            buf.extend(&image_data[bytes_sent..bytes_sent + this_length]);
-
-            // Adding padding
-            buf.extend(vec![0u8; image_report_length - buf.len()]);
+            buf[1..1 + this_length].copy_from_slice(&image_data[bytes_sent..bytes_sent + this_length]);
+            // Zero-fill padding
+            buf[1 + this_length..].fill(0);
 
             self.write_data(&buf)?;
 
