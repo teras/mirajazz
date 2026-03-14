@@ -7,7 +7,7 @@ pub mod types;
 
 // Re-export registry types for convenience
 pub use registry::{
-    DeviceRegistry, DeviceDefinition,
+    DeviceRegistry, DeviceDefinition, BackgroundConfig,
     ButtonImageFormat, ImageMode as RegistryImageMode, Rotation, Mirror,
     MIRAJAZZ_USAGE_PAGE, MIRAJAZZ_USAGE_ID,
 };

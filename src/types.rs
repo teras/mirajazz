@@ -80,4 +80,6 @@ pub enum ImageMode {
     BMP,
     /// Jpeg image
     JPEG,
+    /// PNG image (supports transparency)
+    PNG,
 }

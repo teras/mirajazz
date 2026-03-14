@@ -23,9 +23,22 @@ pub struct DeviceDefinition {
     #[serde(default)]
     pub input_mapping: InputMapping,
 
+    /// Background/fullscreen image configuration (if device supports it)
+    #[serde(default)]
+    pub background: Option<BackgroundConfig>,
+
     /// Device-specific quirks and workarounds
     #[serde(default)]
     pub quirks: Quirks,
+}
+
+/// Background/fullscreen LCD image configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackgroundConfig {
+    pub resolution: [u16; 2],       // [width, height]
+    pub mode: ImageMode,            // JPEG or PNG
+    pub rotation: Rotation,
+    pub mirror: Mirror,
 }
 
 /// HID Usage Page and ID constants (shared by all Mirabox/Ajazz devices)
@@ -106,6 +119,7 @@ pub struct ImageFormatConfig {
 pub enum ImageMode {
     BMP,
     JPEG,
+    PNG,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

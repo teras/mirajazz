@@ -312,6 +312,35 @@ impl Device {
         Ok(())
     }
 
+    /// Sends background/logo image to device using CRT_LOG command.
+    /// The image data should already be encoded (JPEG/PNG).
+    /// Sends CRT_STP (refresh) after the image data, as required by the device protocol.
+    pub fn send_background_image(&self, image_data: &[u8]) -> Result<(), MirajazzError> {
+        self.initialize()?;
+
+        let len = image_data.len();
+        let mut buf = vec![
+            0x00,
+            0x43, 0x52, 0x54,          // "CRT"
+            0x00, 0x00,                 // padding
+            0x4c, 0x4f, 0x47,          // "LOG"
+            0x00,                       // padding
+            (len >> 16) as u8,          // size high
+            (len >> 8) as u8,           // size mid
+            len as u8,                  // size low
+            0x01,                       // target (background)
+        ];
+
+        self.write_extended_data(&mut buf)?;
+        self.write_image_data_reports(image_data)?;
+
+        // Flush (CRT_STP) — required before sending key images
+        let mut buf = vec![0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x53, 0x54, 0x50];
+        self.write_extended_data(&mut buf)?;
+
+        Ok(())
+    }
+
     /// Writes image data to device, changes must be flushed with `.flush()` before
     /// they will appear on the device!
     pub fn write_image(&self, key: u8, image_data: &[u8]) -> Result<(), MirajazzError> {

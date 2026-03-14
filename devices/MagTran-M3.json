@@ -18,10 +18,10 @@
     "encoder_count": 3
   },
   "image_format": {
-    "mode": "JPEG",
+    "mode": "PNG",
     "default_size": [
-      100,
-      100
+      96,
+      96
     ],
     "rotation": "Rot270",
     "mirror": "None",
@@ -69,6 +69,12 @@
       16,
       17
     ]
+  },
+  "background": {
+    "resolution": [854, 480],
+    "mode": "JPEG",
+    "rotation": "Rot270",
+    "mirror": "None"
   },
   "quirks": {
     "needs_button_remapping": true,
