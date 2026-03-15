@@ -30,6 +30,17 @@ pub struct DeviceDefinition {
     /// Device-specific quirks and workarounds
     #[serde(default)]
     pub quirks: Quirks,
+
+    /// RGB LED strip configuration (if device has LEDs)
+    #[serde(default)]
+    pub led: Option<LedConfig>,
+}
+
+/// RGB LED strip configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LedConfig {
+    /// Number of individually addressable RGB LEDs
+    pub count: u8,
 }
 
 /// Background/fullscreen LCD image configuration
@@ -83,6 +94,11 @@ pub struct ProtocolConfig {
     /// Sends MOD command with this value before other commands.
     #[serde(default)]
     pub device_mode: Option<u8>,
+
+    /// HID report ID override (default 0x00).
+    /// K1Pro devices use 0x04.
+    #[serde(default)]
+    pub report_id: Option<u8>,
 }
 
 /// Physical device layout

@@ -100,6 +100,8 @@ pub struct Device {
     encoder_count: usize,
     /// Packet size
     packet_size: usize,
+    /// HID report ID (0x00 for most devices, 0x04 for K1Pro)
+    report_id: u8,
     /// Connected HIDDevice
     hid_device: HidDevice,
     /// Temporarily cache the image before sending it to the device
@@ -121,6 +123,21 @@ impl Device {
         key_count: usize,
         encoder_count: usize,
     ) -> Result<Device, MirajazzError> {
+        Self::connect_with_report_id(hidapi, vid, pid, serial, protocol_version, supports_both_states, key_count, encoder_count, 0x00)
+    }
+
+    /// Attempts to connect to the device with a custom HID report ID
+    pub fn connect_with_report_id(
+        hidapi: &HidApi,
+        vid: u16,
+        pid: u16,
+        serial: &str,
+        protocol_version: usize,
+        supports_both_states: bool,
+        key_count: usize,
+        encoder_count: usize,
+        report_id: u8,
+    ) -> Result<Device, MirajazzError> {
         let hid_device = hidapi.open_serial(vid, pid, serial)?;
 
         Ok(Device {
@@ -132,6 +149,7 @@ impl Device {
             key_count,
             encoder_count,
             packet_size: if protocol_version >= 2 { 1024 } else { 512 },
+            report_id,
             hid_device,
             image_cache: RwLock::new(vec![]),
             initialized: false.into(),
@@ -198,11 +216,11 @@ impl Device {
 
         self.initialized.store(true, Ordering::Release);
 
-        let mut buf = vec![0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x44, 0x49, 0x53];
+        let mut buf = vec![self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00, 0x44, 0x49, 0x53];
         self.write_extended_data(&mut buf)?;
 
         let mut buf = vec![
-            0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x4c, 0x49, 0x47, 0x00, 0x00, 0x00, 0x00,
+            self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00, 0x4c, 0x49, 0x47, 0x00, 0x00, 0x00, 0x00,
         ];
         self.write_extended_data(&mut buf)?;
 
@@ -228,7 +246,7 @@ impl Device {
     /// Sends MOD command to switch device mode (for multimodal devices)
     pub fn set_mode(&self, mode: u8) -> Result<(), MirajazzError> {
         let mut buf = vec![
-            0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x4D, 0x4F, 0x44, 0x30 + mode,
+            self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00, 0x4D, 0x4F, 0x44, 0x30 + mode,
         ];
         self.write_extended_data(&mut buf)?;
         Ok(())
@@ -244,22 +262,26 @@ impl Device {
 
         let data = self.read_data(512, timeout)?;
 
-        if data[0] == 0 {
+        // For devices with non-zero report ID (e.g., K1Pro uses 0x04),
+        // the response data is shifted by 1 byte
+        let offset: usize = if self.report_id != 0x00 { 1 } else { 0 };
+
+        if data[offset] == 0 {
             return Ok(DeviceInput::NoData);
         }
 
         // Validate ACK prefix [65, 67, 75] = "ACK" (skip for protocol_version 0)
-        if self.protocol_version > 0 && !data.starts_with(&[65, 67, 75]) {
+        if self.protocol_version > 0 && !data[offset..].starts_with(&[65, 67, 75]) {
             return Ok(DeviceInput::NoData);
         }
 
         let state = if self.supports_both_states() {
-            data[10]
+            data[10 + offset]
         } else {
             0x1u8
         };
 
-        Ok(process_input(data[9], state)?)
+        Ok(process_input(data[9 + offset], state)?)
     }
 
     /// Resets the device
@@ -279,7 +301,7 @@ impl Device {
         let percent = percent.clamp(0, 100);
 
         let mut buf = vec![
-            0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x4c, 0x49, 0x47, 0x00, 0x00, percent,
+            self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00, 0x4c, 0x49, 0x47, 0x00, 0x00, percent,
         ];
 
         self.write_extended_data(&mut buf)?;
@@ -289,7 +311,7 @@ impl Device {
 
     fn send_image(&self, key: u8, image_data: &[u8]) -> Result<(), MirajazzError> {
         let mut buf = vec![
-            0x00,
+            self.report_id,
             0x43,
             0x52,
             0x54,
@@ -320,7 +342,7 @@ impl Device {
 
         let len = image_data.len();
         let mut buf = vec![
-            0x00,
+            self.report_id,
             0x43, 0x52, 0x54,          // "CRT"
             0x00, 0x00,                 // padding
             0x4c, 0x4f, 0x47,          // "LOG"
@@ -335,7 +357,7 @@ impl Device {
         self.write_image_data_reports(image_data)?;
 
         // Flush (CRT_STP) — required before sending key images
-        let mut buf = vec![0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x53, 0x54, 0x50];
+        let mut buf = vec![self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00, 0x53, 0x54, 0x50];
         self.write_extended_data(&mut buf)?;
 
         Ok(())
@@ -357,7 +379,7 @@ impl Device {
 
         let len = image_data.len() as u32;
         let mut buf = vec![
-            0x00,
+            self.report_id,
             0x43, 0x52, 0x54,                     // "CRT"
             0x00, 0x00,                             // padding
             0x42, 0x47, 0x50, 0x49, 0x43,          // "BGPIC"
@@ -377,7 +399,7 @@ impl Device {
         self.write_image_data_reports(image_data)?;
 
         // Flush (CRT_STP)
-        let mut buf = vec![0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x53, 0x54, 0x50];
+        let mut buf = vec![self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00, 0x53, 0x54, 0x50];
         self.write_extended_data(&mut buf)?;
 
         Ok(())
@@ -389,7 +411,7 @@ impl Device {
         self.initialize()?;
 
         let mut buf = vec![
-            0x00,
+            self.report_id,
             0x43, 0x52, 0x54,                     // "CRT"
             0x00, 0x00,                             // padding
             0x42, 0x47, 0x43, 0x4c, 0x45,          // "BGCLE"
@@ -420,7 +442,7 @@ impl Device {
         self.initialize()?;
 
         let mut buf = vec![
-            0x00,
+            self.report_id,
             0x43,
             0x52,
             0x54,
@@ -449,7 +471,7 @@ impl Device {
 
         if self.protocol_version >= 2 {
             // Mirabox v2+ requires STP to commit clearing the screen
-            let mut buf = vec![0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x53, 0x54, 0x50];
+            let mut buf = vec![self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00, 0x53, 0x54, 0x50];
 
             self.write_extended_data(&mut buf)?;
         }
@@ -478,7 +500,7 @@ impl Device {
     pub fn sleep(&self) -> Result<(), MirajazzError> {
         self.initialize()?;
 
-        let mut buf = vec![0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x48, 0x41, 0x4e];
+        let mut buf = vec![self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00, 0x48, 0x41, 0x4e];
         self.write_extended_data(&mut buf)?;
 
         Ok(())
@@ -489,7 +511,7 @@ impl Device {
         self.initialize()?;
 
         let mut buf = vec![
-            0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x43, 0x4F, 0x4E, 0x4E, 0x45, 0x43, 0x54,
+            self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00, 0x43, 0x4F, 0x4E, 0x4E, 0x45, 0x43, 0x54,
         ];
 
         self.write_extended_data(&mut buf)?;
@@ -502,13 +524,131 @@ impl Device {
         self.initialize()?;
 
         let mut buf = vec![
-            0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x43, 0x4c, 0x45, 0x00, 0x00, 0x44, 0x43,
+            self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00, 0x43, 0x4c, 0x45, 0x00, 0x00, 0x44, 0x43,
         ];
         self.write_extended_data(&mut buf)?;
 
-        let mut buf = vec![0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x48, 0x41, 0x4E];
+        let mut buf = vec![self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00, 0x48, 0x41, 0x4E];
         self.write_extended_data(&mut buf)?;
 
+        Ok(())
+    }
+
+    /// Wakes the device screen (sends CRT DIS, same as display init)
+    pub fn wakeup(&self) -> Result<(), MirajazzError> {
+        let mut buf = vec![self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00, 0x44, 0x49, 0x53];
+        self.write_extended_data(&mut buf)?;
+        self.initialized.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    /// Sets RGB LED strip brightness (0-100) using CRT LBLIG command.
+    /// Supported on devices with RGB LED strips (e.g., N4Pro, XL).
+    pub fn set_led_brightness(&self, brightness: u8) -> Result<(), MirajazzError> {
+        self.initialize()?;
+        let brightness = brightness.clamp(0, 100);
+        let mut buf = vec![
+            self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00,
+            0x4c, 0x42, 0x4c, 0x49, 0x47, // "LBLIG"
+            brightness,
+        ];
+        self.write_extended_data(&mut buf)?;
+        Ok(())
+    }
+
+    /// Sets RGB LED strip colors using CRT SETLB command.
+    /// Each tuple is (r, g, b) for one LED. Multiple LEDs are set in sequence.
+    pub fn set_led_color(&self, colors: &[(u8, u8, u8)]) -> Result<(), MirajazzError> {
+        self.initialize()?;
+        let mut buf = vec![
+            self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00,
+            0x53, 0x45, 0x54, 0x4c, 0x42, // "SETLB"
+        ];
+        for &(r, g, b) in colors {
+            buf.push(r);
+            buf.push(g);
+            buf.push(b);
+        }
+        self.write_extended_data(&mut buf)?;
+        Ok(())
+    }
+
+    /// Resets RGB LED strip to default state using CRT DELED command.
+    pub fn reset_led_color(&self) -> Result<(), MirajazzError> {
+        self.initialize()?;
+        let mut buf = vec![
+            self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00,
+            0x44, 0x45, 0x4c, 0x45, 0x44, // "DELED"
+        ];
+        self.write_extended_data(&mut buf)?;
+        Ok(())
+    }
+
+    /// Sets device configuration flags using CRT QUCMD command.
+    /// Config bytes: each byte is 0x11 (on), 0xFF (off), or 0x1F (follow/default).
+    /// N4Pro/XL layout: [LedFollowKeyLight, KeyLightOnDisconnect, CheckUsbPower,
+    ///                    EnableVibration, ResetUsbReport, EnableBootVideo]
+    pub fn set_device_config(&self, config: &[u8]) -> Result<(), MirajazzError> {
+        self.initialize()?;
+        let mut buf = vec![
+            self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00,
+            0x51, 0x55, 0x43, 0x4d, 0x44, // "QUCMD"
+        ];
+        buf.extend_from_slice(config);
+        self.write_extended_data(&mut buf)?;
+        Ok(())
+    }
+
+    /// Sets keyboard backlight brightness (0-6) using CRT LLUM command.
+    /// K1Pro devices only.
+    pub fn set_keyboard_backlight_brightness(&self, brightness: u8) -> Result<(), MirajazzError> {
+        self.initialize()?;
+        let mut buf = vec![
+            self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00,
+            0x4c, 0x4c, 0x55, 0x4d, // "LLUM"
+            0x00, brightness,
+        ];
+        self.write_extended_data(&mut buf)?;
+        Ok(())
+    }
+
+    /// Sets keyboard lighting mode/effect/speed using CRT LMOD command.
+    /// Effects: 0-9, Speed: 0-7. K1Pro devices only.
+    pub fn set_keyboard_lighting_mode(&self, value: u8) -> Result<(), MirajazzError> {
+        self.initialize()?;
+        let mut buf = vec![
+            self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00,
+            0x4c, 0x4d, 0x4f, 0x44, // "LMOD"
+            0x00, value,
+        ];
+        self.write_extended_data(&mut buf)?;
+        Ok(())
+    }
+
+    /// Sets keyboard RGB backlight color using CRT COLOR command.
+    /// K1Pro devices only.
+    pub fn set_keyboard_rgb(&self, r: u8, g: u8, b: u8) -> Result<(), MirajazzError> {
+        self.initialize()?;
+        let mut buf = vec![
+            self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00,
+            0x43, 0x4f, 0x4c, 0x4f, 0x52, // "COLOR"
+            r, g, b,
+        ];
+        self.write_extended_data(&mut buf)?;
+        Ok(())
+    }
+
+    /// Sets keyboard OS mode using CRT CPOS command.
+    /// mac=true sends 'M' (0x4d), mac=false sends 'W' (0x57). K1Pro devices only.
+    pub fn set_keyboard_os_mode(&self, mac: bool) -> Result<(), MirajazzError> {
+        self.initialize()?;
+        let mode = if mac { 0x4d } else { 0x57 };
+        let mut buf = vec![
+            self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00,
+            0x43, 0x50, 0x4f, 0x53, // "CPOS"
+            0x00, mode,
+        ];
+        self.write_extended_data(&mut buf)?;
         Ok(())
     }
 
@@ -524,7 +664,7 @@ impl Device {
             self.send_image(image.key, &image.image_data)?;
         }
 
-        let mut buf = vec![0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x53, 0x54, 0x50];
+        let mut buf = vec![self.report_id, 0x43, 0x52, 0x54, 0x00, 0x00, 0x53, 0x54, 0x50];
         self.write_extended_data(&mut buf)?;
 
         self.image_cache.write()?.clear();
@@ -549,7 +689,7 @@ impl Device {
         let image_report_payload_length = self.packet_size; // image_report_length - 1 (header byte)
 
         let mut buf = vec![0u8; image_report_length];
-        buf[0] = 0x00; // Header byte
+        buf[0] = self.report_id; // Header byte (report ID)
 
         let mut page_number = 0;
         let mut bytes_remaining = image_data.len();

@@ -156,8 +156,22 @@ The Mirabox/Ajazz protocol generation determines packet sizes, features, and ini
 Device mode to set on initialization for multimodal devices. Sends a MOD command with this value before any other commands.
 
 - **Values:** `0`-`255` (device-specific meaning)
+- **Known values:**
+  - `2` - StreamDock N1 (software mode, sent via `switchMode()` on open)
 - **When to use:** Some devices support multiple operational modes (e.g., macropad vs mixer). The mode must be set before the device will accept other commands.
 - **Default:** Not set (no MOD command sent)
+
+---
+
+#### `report_id` (integer, optional)
+
+HID report ID override. Most devices use the default `0x00`. The K1Pro uses `0x04`.
+
+- **Values:** `0`-`255`
+- **Default:** `0` (standard HID report ID)
+- **Impact:** When non-zero, all byte offsets in HID reads and writes shift by 1 to account for the report ID byte. This affects CRT command buffers, image data transfers, and input event parsing.
+- **Known values:**
+  - `4` - StreamDock K1Pro
 
 ---
 
@@ -366,6 +380,56 @@ List of button indices that don't have displays.
 
 ---
 
+### `background` (optional)
+
+Background/touchscreen image configuration. Present on devices with a touchscreen display
+behind or around the button grid.
+
+#### `resolution` (array[2], required)
+
+Background image dimensions `[width, height]` in pixels.
+
+- **Examples:**
+  - `[800, 480]` - N4Pro, N4, 293, 293V3, K1Pro
+  - `[1024, 600]` - XL
+  - `[480, 272]` - M18, M3
+  - `[480, 854]` - N1 (portrait orientation)
+  - `[854, 480]` - 293s, 293sV3
+
+#### `mode` (string, required)
+
+Image encoding format for background images.
+
+- **Values:** `"JPEG"` (all current devices)
+
+#### `rotation` (string, required)
+
+Image rotation for the background. Same values as `image_format.rotation`.
+
+#### `mirror` (string, required)
+
+Image mirroring for the background. Same values as `image_format.mirror`.
+
+---
+
+### `led` (optional)
+
+RGB LED strip configuration for devices with ambient lighting around the button grid.
+
+#### `count` (integer, required)
+
+Number of individually addressable RGB LEDs.
+
+- **Known values:**
+  - `4` - StreamDock N4Pro
+  - `6` - StreamDock XL
+  - `24` - StreamDock M18
+
+**Note:** When present, the device supports CRT commands LBLIG (brightness), SETLB (color),
+and DELED (reset). See [PROTOCOL.md](PROTOCOL.md) for details.
+
+---
+
 ### `quirks` (required)
 
 Device-specific behavior flags.
@@ -556,6 +620,123 @@ emit paired Down+Up events for every press, like protocol v1/v2 devices.
   "quirks": {
     "needs_button_remapping": true,
     "has_non_display_buttons": false
+  }
+}
+```
+
+### StreamDock Device with LEDs, Background, and Encoders
+
+```json
+{
+  "hardware": {
+    "vendor_id": "0x5548",
+    "product_id": "0x1008"
+  },
+  "info": {
+    "human_name": "StreamDock N4Pro",
+    "device_namespace": "np",
+    "manufacturer": "Mirabox",
+    "model": "StreamDock N4Pro"
+  },
+  "protocol": {
+    "protocol_version": 3
+  },
+  "layout": {
+    "rows": 2,
+    "cols": 5,
+    "encoder_count": 4
+  },
+  "image_format": {
+    "mode": "JPEG",
+    "default_size": [112, 112],
+    "rotation": "Rot180",
+    "mirror": "None",
+    "per_button_overrides": {}
+  },
+  "input_mapping": {
+    "button_remap": [5, 6, 7, 8, 9, 0, 1, 2, 3, 4],
+    "encoder_twist_map": {
+      "160": { "encoder": 0, "direction": -1 },
+      "161": { "encoder": 0, "direction": 1 },
+      "80": { "encoder": 1, "direction": -1 },
+      "81": { "encoder": 1, "direction": 1 },
+      "144": { "encoder": 2, "direction": -1 },
+      "145": { "encoder": 2, "direction": 1 },
+      "112": { "encoder": 3, "direction": -1 },
+      "113": { "encoder": 3, "direction": 1 }
+    },
+    "encoder_press_map": {
+      "55": 0,
+      "53": 1,
+      "51": 2,
+      "54": 3
+    },
+    "non_display_buttons": []
+  },
+  "background": {
+    "resolution": [800, 480],
+    "mode": "JPEG",
+    "rotation": "Rot180",
+    "mirror": "None"
+  },
+  "quirks": {
+    "needs_button_remapping": true
+  },
+  "led": {
+    "count": 4
+  }
+}
+```
+
+### Device with Custom HID Report ID
+
+```json
+{
+  "hardware": {
+    "vendor_id": "0x6603",
+    "product_id": "0x1015"
+  },
+  "info": {
+    "human_name": "StreamDock K1Pro",
+    "device_namespace": "kp",
+    "manufacturer": "Mirabox",
+    "model": "StreamDock K1Pro"
+  },
+  "protocol": {
+    "protocol_version": 3,
+    "report_id": 4
+  },
+  "layout": {
+    "rows": 2,
+    "cols": 3,
+    "encoder_count": 3
+  },
+  "image_format": {
+    "mode": "JPEG",
+    "default_size": [64, 64],
+    "rotation": "Rot90",
+    "mirror": "None",
+    "per_button_overrides": {}
+  },
+  "input_mapping": {
+    "button_remap": [4, 2, 0, 5, 3, 1],
+    "encoder_twist_map": {
+      "80": { "encoder": 0, "direction": -1 },
+      "81": { "encoder": 0, "direction": 1 },
+      "96": { "encoder": 1, "direction": -1 },
+      "97": { "encoder": 1, "direction": 1 },
+      "144": { "encoder": 2, "direction": -1 },
+      "145": { "encoder": 2, "direction": 1 }
+    },
+    "encoder_press_map": {
+      "37": 0,
+      "48": 1,
+      "49": 2
+    },
+    "non_display_buttons": []
+  },
+  "quirks": {
+    "needs_button_remapping": true
   }
 }
 ```
