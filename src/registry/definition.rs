@@ -271,3 +271,53 @@ pub struct ButtonImageFormat {
     pub rotation: Rotation,
     pub mirror: Mirror,
 }
+
+// Conversions from registry types to driver ImageFormat
+
+fn convert_mode(mode: ImageMode) -> crate::types::ImageMode {
+    match mode {
+        ImageMode::BMP => crate::types::ImageMode::BMP,
+        ImageMode::JPEG => crate::types::ImageMode::JPEG,
+        ImageMode::PNG => crate::types::ImageMode::PNG,
+    }
+}
+
+fn convert_rotation(rotation: Rotation) -> crate::types::ImageRotation {
+    match rotation {
+        Rotation::Rot0 => crate::types::ImageRotation::Rot0,
+        Rotation::Rot90 => crate::types::ImageRotation::Rot90,
+        Rotation::Rot180 => crate::types::ImageRotation::Rot180,
+        Rotation::Rot270 => crate::types::ImageRotation::Rot270,
+    }
+}
+
+fn convert_mirror(mirror: Mirror) -> crate::types::ImageMirroring {
+    match mirror {
+        Mirror::None => crate::types::ImageMirroring::None,
+        Mirror::X => crate::types::ImageMirroring::X,
+        Mirror::Y => crate::types::ImageMirroring::Y,
+        Mirror::Both => crate::types::ImageMirroring::Both,
+    }
+}
+
+impl From<ButtonImageFormat> for crate::types::ImageFormat {
+    fn from(f: ButtonImageFormat) -> Self {
+        Self {
+            mode: convert_mode(f.mode),
+            size: (f.size[0] as usize, f.size[1] as usize),
+            rotation: convert_rotation(f.rotation),
+            mirror: convert_mirror(f.mirror),
+        }
+    }
+}
+
+impl From<&BackgroundConfig> for crate::types::ImageFormat {
+    fn from(bg: &BackgroundConfig) -> Self {
+        Self {
+            mode: convert_mode(bg.mode),
+            size: (bg.resolution[0] as usize, bg.resolution[1] as usize),
+            rotation: convert_rotation(bg.rotation),
+            mirror: convert_mirror(bg.mirror),
+        }
+    }
+}

@@ -312,10 +312,10 @@ impl Device {
         Ok(())
     }
 
-    /// Sends background/logo image to device using CRT_LOG command.
-    /// The image data should already be encoded (JPEG/PNG).
+    /// Sends persistent boot logo to device flash using CRT LOG command.
+    /// The image survives power cycles. The image data should already be encoded (JPEG/PNG).
     /// Sends CRT_STP (refresh) after the image data, as required by the device protocol.
-    pub fn send_background_image(&self, image_data: &[u8]) -> Result<(), MirajazzError> {
+    pub fn send_boot_logo(&self, image_data: &[u8]) -> Result<(), MirajazzError> {
         self.initialize()?;
 
         let len = image_data.len();
@@ -336,6 +336,66 @@ impl Device {
 
         // Flush (CRT_STP) — required before sending key images
         let mut buf = vec![0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x53, 0x54, 0x50];
+        self.write_extended_data(&mut buf)?;
+
+        Ok(())
+    }
+
+    /// Send runtime background frame using CRT BGPIC command.
+    /// Unlike CRT LOG (persistent boot logo), BGPIC is a runtime overlay on a framebuffer layer.
+    /// The image is placed at position (x, y) with given dimensions on the specified layer.
+    pub fn send_background_image(
+        &self,
+        image_data: &[u8],
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        fb_layer: u8,
+    ) -> Result<(), MirajazzError> {
+        self.initialize()?;
+
+        let len = image_data.len() as u32;
+        let mut buf = vec![
+            0x00,
+            0x43, 0x52, 0x54,                     // "CRT"
+            0x00, 0x00,                             // padding
+            0x42, 0x47, 0x50, 0x49, 0x43,          // "BGPIC"
+            (len >> 24) as u8,                      // data length (uint32 BE)
+            (len >> 16) as u8,
+            (len >> 8) as u8,
+            len as u8,
+            (x >> 8) as u8, x as u8,               // X position (uint16 BE)
+            (y >> 8) as u8, y as u8,               // Y position (uint16 BE)
+            (width >> 8) as u8, width as u8,       // Width (uint16 BE)
+            (height >> 8) as u8, height as u8,     // Height (uint16 BE)
+            0x00,                                   // reserved
+            fb_layer,                               // framebuffer layer
+        ];
+
+        self.write_extended_data(&mut buf)?;
+        self.write_image_data_reports(image_data)?;
+
+        // Flush (CRT_STP)
+        let mut buf = vec![0x00, 0x43, 0x52, 0x54, 0x00, 0x00, 0x53, 0x54, 0x50];
+        self.write_extended_data(&mut buf)?;
+
+        Ok(())
+    }
+
+    /// Clear runtime background frame layer using CRT BGCLE command.
+    /// position: 0x01 = keys only, 0x02 = touchscreen only, 0x03 = all
+    pub fn clear_background_image(&self, position: u8) -> Result<(), MirajazzError> {
+        self.initialize()?;
+
+        let mut buf = vec![
+            0x00,
+            0x43, 0x52, 0x54,                     // "CRT"
+            0x00, 0x00,                             // padding
+            0x42, 0x47, 0x43, 0x4c, 0x45,          // "BGCLE"
+            position,                               // target (0x01/0x02/0x03)
+        ];
+
         self.write_extended_data(&mut buf)?;
 
         Ok(())
